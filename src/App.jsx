@@ -16,6 +16,9 @@ export default function App() {
   const [slug, setSlug] = useState("");
   const [secretKey, setSecretKey] = useState("");
 
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [bankAccountId, setBankAccountId] = useState("");
+
   const [files, setFiles] = useState([]);
   const [matches, setMatches] = useState([]);
   const [attaching, setAttaching] = useState(false);
@@ -39,6 +42,11 @@ export default function App() {
       if (!res.ok) throw new Error(`Connexion refusée (code ${res.status})`);
       const data = await res.json();
       setSessionId(data.session_id || data.id);
+      const accounts = data.bank_accounts || [];
+      setBankAccounts(accounts);
+      if (accounts.length) {
+        setBankAccountId(accounts[0].id || accounts[0].bank_account_id || "");
+      }
       setStep("upload");
     } catch (err) {
       setError(err.message || "Impossible de se connecter à Qonto.");
@@ -67,7 +75,7 @@ export default function App() {
         throw new Error(`Échec de l'envoi des factures (code ${uploadRes.status})`);
 
       const matchRes = await fetch(
-        `${API_BASE}/sessions/${sessionId}/match`,
+        `${API_BASE}/sessions/${sessionId}/match?bank_account_id=${encodeURIComponent(bankAccountId)}`,
         { method: "POST" }
       );
       if (!matchRes.ok)
@@ -173,6 +181,26 @@ export default function App() {
               Qontrol va les rapprocher automatiquement de vos transactions Qonto
               sans justificatif.
             </p>
+
+            {bankAccounts.length > 1 && (
+              <label style={styles.label}>
+                Compte bancaire à rapprocher
+                <select
+                  style={styles.input}
+                  value={bankAccountId}
+                  onChange={(e) => setBankAccountId(e.target.value)}
+                >
+                  {bankAccounts.map((acc) => (
+                    <option
+                      key={acc.id || acc.bank_account_id}
+                      value={acc.id || acc.bank_account_id}
+                    >
+                      {acc.name || acc.iban || acc.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <label style={styles.dropZone}>
               <input
