@@ -212,7 +212,7 @@ export default function App() {
             <label style={styles.dropZone}>
               <input
                 type="file"
-                accept="application/pdf"
+                accept="application/pdf,image/jpeg,image/png,image/webp"
                 multiple
                 onChange={(e) => setFiles(Array.from(e.target.files))}
                 style={{ display: "none" }}
@@ -221,7 +221,7 @@ export default function App() {
               <span>
                 {files.length
                   ? `${files.length} facture${files.length > 1 ? "s" : ""} sélectionnée${files.length > 1 ? "s" : ""}`
-                  : "Cliquez pour choisir vos PDF"}
+                  : "Cliquez pour choisir vos factures (PDF, JPG, PNG)"}
               </span>
             </label>
 
