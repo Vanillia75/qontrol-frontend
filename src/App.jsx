@@ -21,6 +21,7 @@ export default function App() {
 
   const [files, setFiles] = useState([]);
   const [matches, setMatches] = useState([]);
+  const [matchSummary, setMatchSummary] = useState(null);
   const [attaching, setAttaching] = useState(false);
   const [attachedCount, setAttachedCount] = useState(null);
 
@@ -82,7 +83,13 @@ export default function App() {
         throw new Error(`Échec du rapprochement (code ${matchRes.status})`);
 
       const data = await matchRes.json();
-      setMatches(data.matches || data.results || data || []);
+      setMatches(data.results || data.matches || []);
+      setMatchSummary({
+        total: data.total,
+        auto: data.auto,
+        a_verifier: data.a_verifier,
+        manquant: data.manquant,
+      });
       setStep("resultats");
     } catch (err) {
       setError(err.message || "Une erreur est survenue.");
@@ -227,59 +234,61 @@ export default function App() {
         {step === "resultats" && (
           <div style={styles.card}>
             <h1 style={styles.title}>Résultats du rapprochement</h1>
-            <p style={styles.subtitle}>
-              {matches.length} transaction{matches.length > 1 ? "s" : ""} analysée
-              {matches.length > 1 ? "s" : ""}.
-            </p>
+            {matchSummary && (
+              <p style={styles.subtitle}>
+                {matchSummary.total} transactions · {matchSummary.auto} attachées
+                auto · {matchSummary.a_verifier} à vérifier · {matchSummary.manquant} sans
+                facture
+              </p>
+            )}
 
             <div style={styles.matchList}>
-              {matches.map((m, i) => {
-                const confidence = Math.round(
-                  (m.confidence ?? m.score ?? 0) <= 1
-                    ? (m.confidence ?? m.score ?? 0) * 100
-                    : m.confidence ?? m.score ?? 0
-                );
-                const tier =
-                  confidence >= 85 ? "high" : confidence >= 50 ? "mid" : "low";
-                return (
-                  <div key={i} style={styles.matchRow}>
-                    <div style={styles.matchSide}>
-                      <span style={styles.matchLabel}>Transaction</span>
-                      <span style={styles.matchValue}>
-                        {m.transaction_label || m.label || "—"}
-                      </span>
-                      <span style={styles.matchAmount}>
-                        {m.transaction_amount ?? m.amount ?? "—"} €
-                      </span>
-                    </div>
+              {matches
+                .filter((m) => m.matched_invoice)
+                .map((m, i) => {
+                  const confidence = Math.round((m.confidence ?? 0) * 100);
+                  const tier =
+                    confidence >= 85 ? "high" : confidence >= 50 ? "mid" : "low";
+                  return (
+                    <div key={i} style={styles.matchRow}>
+                      <div style={styles.matchSide}>
+                        <span style={styles.matchLabel}>Transaction</span>
+                        <span style={styles.matchValue}>
+                          {m.transaction_label || "—"}
+                        </span>
+                        <span style={styles.matchAmount}>{m.amount} €</span>
+                      </div>
 
-                    <div
-                      style={{
-                        ...styles.matchBridge,
-                        ...(tier === "high"
-                          ? styles.bridgeHigh
-                          : tier === "mid"
-                          ? styles.bridgeMid
-                          : styles.bridgeLow),
-                      }}
-                    >
-                      {confidence}%
-                    </div>
+                      <div
+                        style={{
+                          ...styles.matchBridge,
+                          ...(tier === "high"
+                            ? styles.bridgeHigh
+                            : tier === "mid"
+                            ? styles.bridgeMid
+                            : styles.bridgeLow),
+                        }}
+                      >
+                        {confidence}%
+                      </div>
 
-                    <div style={styles.matchSide}>
-                      <span style={styles.matchLabel}>Facture</span>
-                      <span style={styles.matchValue}>
-                        {m.invoice_filename || m.invoice || "Aucune correspondance"}
-                      </span>
-                      <span style={styles.matchAmount}>
-                        {m.invoice_amount ?? "—"} €
-                      </span>
+                      <div style={styles.matchSide}>
+                        <span style={styles.matchLabel}>Facture</span>
+                        <span style={styles.matchValue}>{m.matched_invoice}</span>
+                        {m.reasons?.length > 0 && (
+                          <span style={styles.matchReason}>
+                            {m.reasons.join(" · ")}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-              {matches.length === 0 && (
-                <p style={styles.subtitle}>Aucun résultat à afficher.</p>
+                  );
+                })}
+              {matches.filter((m) => m.matched_invoice).length === 0 && (
+                <p style={styles.subtitle}>
+                  Aucune facture n'a pu être rapprochée d'une transaction pour
+                  l'instant.
+                </p>
               )}
             </div>
 
@@ -460,6 +469,11 @@ const styles = {
     fontFamily: "'IBM Plex Mono', monospace",
     fontSize: 13,
     color: "#5B6573",
+  },
+  matchReason: {
+    fontSize: 11,
+    color: "#9098A6",
+    fontStyle: "italic",
   },
   matchBridge: {
     fontFamily: "'IBM Plex Mono', monospace",
