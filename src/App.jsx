@@ -107,7 +107,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error(`Échec de l'attachement (code ${res.status})`);
       const data = await res.json();
-      setAttachedCount(data.attached_count ?? data.count ?? null);
+      setAttachedCount(data.attached ?? data.attached_count ?? null);
     } catch (err) {
       setError(err.message || "Impossible d'attacher les justificatifs.");
     } finally {
