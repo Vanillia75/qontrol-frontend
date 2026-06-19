@@ -22,6 +22,9 @@ export default function App() {
   const [files, setFiles] = useState([]);
   const [matches, setMatches] = useState([]);
   const [matchSummary, setMatchSummary] = useState(null);
+  const [invoiceHistory, setInvoiceHistory] = useState([]);
+  const [extraFiles, setExtraFiles] = useState([]);
+  const [addingMore, setAddingMore] = useState(false);
   const [attaching, setAttaching] = useState(false);
   const [attachedCount, setAttachedCount] = useState(null);
 
@@ -56,6 +59,41 @@ export default function App() {
     }
   }
 
+  async function uploadFiles(filesToUpload) {
+    const form = new FormData();
+    for (const f of filesToUpload) form.append("files", f);
+
+    const uploadRes = await fetch(
+      `${API_BASE}/sessions/${sessionId}/invoices/upload`,
+      { method: "POST", body: form }
+    );
+    if (!uploadRes.ok)
+      throw new Error(`Échec de l'envoi des factures (code ${uploadRes.status})`);
+
+    const data = await uploadRes.json();
+    const newInvoices = data.invoices || [];
+    setInvoiceHistory((prev) => [...prev, ...newInvoices]);
+    return newInvoices;
+  }
+
+  async function runMatch() {
+    const matchRes = await fetch(
+      `${API_BASE}/sessions/${sessionId}/match?bank_account_id=${encodeURIComponent(bankAccountId)}`,
+      { method: "POST" }
+    );
+    if (!matchRes.ok)
+      throw new Error(`Échec du rapprochement (code ${matchRes.status})`);
+
+    const data = await matchRes.json();
+    setMatches(data.results || data.matches || []);
+    setMatchSummary({
+      total: data.total,
+      auto: data.auto,
+      a_verifier: data.a_verifier,
+      manquant: data.manquant,
+    });
+  }
+
   async function handleUploadAndMatch(e) {
     e.preventDefault();
     setError("");
@@ -65,36 +103,33 @@ export default function App() {
     }
     setLoading(true);
     try {
-      const form = new FormData();
-      for (const f of files) form.append("files", f);
-
-      const uploadRes = await fetch(
-        `${API_BASE}/sessions/${sessionId}/invoices/upload`,
-        { method: "POST", body: form }
-      );
-      if (!uploadRes.ok)
-        throw new Error(`Échec de l'envoi des factures (code ${uploadRes.status})`);
-
-      const matchRes = await fetch(
-        `${API_BASE}/sessions/${sessionId}/match?bank_account_id=${encodeURIComponent(bankAccountId)}`,
-        { method: "POST" }
-      );
-      if (!matchRes.ok)
-        throw new Error(`Échec du rapprochement (code ${matchRes.status})`);
-
-      const data = await matchRes.json();
-      setMatches(data.results || data.matches || []);
-      setMatchSummary({
-        total: data.total,
-        auto: data.auto,
-        a_verifier: data.a_verifier,
-        manquant: data.manquant,
-      });
+      await uploadFiles(files);
+      await runMatch();
       setStep("resultats");
     } catch (err) {
       setError(err.message || "Une erreur est survenue.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleAddMore(e) {
+    e.preventDefault();
+    setError("");
+    if (!extraFiles.length) {
+      setError("Choisissez au moins une nouvelle facture.");
+      return;
+    }
+    setAddingMore(true);
+    try {
+      await uploadFiles(extraFiles);
+      await runMatch();
+      setExtraFiles([]);
+      setAttachedCount(null);
+    } catch (err) {
+      setError(err.message || "Une erreur est survenue.");
+    } finally {
+      setAddingMore(false);
     }
   }
 
@@ -119,7 +154,7 @@ export default function App() {
     <div style={styles.page}>
       <style>{globalCss}</style>
 
-      <header style={styles.header}>
+      <header style={step === "resultats" ? styles.headerWide : styles.header}>
         <div style={styles.logo}>
           <span style={styles.logoMark}>⟡</span> Qontrol
         </div>
@@ -142,7 +177,7 @@ export default function App() {
         </ol>
       </header>
 
-      <main style={styles.main}>
+      <main style={step === "resultats" ? styles.mainWide : styles.main}>
         {error && <div style={styles.errorBanner}>{error}</div>}
 
         {step === "connexion" && (
@@ -303,6 +338,63 @@ export default function App() {
                 ? "Attachement en cours…"
                 : "Attacher les justificatifs sur Qonto"}
             </button>
+
+            <div style={styles.dashSection}>
+              <h2 style={styles.dashTitle}>Ajouter d'autres factures</h2>
+              <form style={styles.addMoreRow} onSubmit={handleAddMore}>
+                <label style={styles.dropZoneSmall}>
+                  <input
+                    type="file"
+                    accept="application/pdf,image/jpeg,image/png,image/webp"
+                    multiple
+                    onChange={(e) => setExtraFiles(Array.from(e.target.files))}
+                    style={{ display: "none" }}
+                  />
+                  <span style={styles.dropZoneIcon}>＋</span>
+                  <span>
+                    {extraFiles.length
+                      ? `${extraFiles.length} fichier${extraFiles.length > 1 ? "s" : ""} sélectionné${extraFiles.length > 1 ? "s" : ""}`
+                      : "Choisir de nouvelles factures (PDF, JPG, PNG)"}
+                  </span>
+                </label>
+                <button style={styles.buttonSecondary} type="submit" disabled={addingMore}>
+                  {addingMore ? "Envoi…" : "Ajouter et relancer"}
+                </button>
+              </form>
+            </div>
+
+            <div style={styles.dashSection}>
+              <h2 style={styles.dashTitle}>
+                Historique des factures envoyées ({invoiceHistory.length})
+              </h2>
+              {invoiceHistory.length === 0 ? (
+                <p style={styles.subtitle}>Aucune facture envoyée pour l'instant.</p>
+              ) : (
+                <div style={styles.historyList}>
+                  {invoiceHistory.map((inv, i) => {
+                    const matched = matches.some(
+                      (m) => m.matched_invoice === inv.filename
+                    );
+                    return (
+                      <div key={i} style={styles.historyRow}>
+                        <span style={styles.historyFilename}>{inv.filename}</span>
+                        <span style={styles.historyAmount}>
+                          {inv.amount} {inv.currency}
+                        </span>
+                        <span
+                          style={{
+                            ...styles.historyBadge,
+                            ...(matched ? styles.historyBadgeMatched : styles.historyBadgePending),
+                          }}
+                        >
+                          {matched ? "Rapprochée" : "En attente"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>
@@ -340,6 +432,7 @@ const styles = {
     padding: "40px 20px",
   },
   header: { width: "100%", maxWidth: 560, marginBottom: 32 },
+  headerWide: { width: "100%", maxWidth: 680, marginBottom: 32 },
   logo: {
     fontFamily: "'Fraunces', serif",
     fontSize: 22,
@@ -378,6 +471,7 @@ const styles = {
     fontSize: 11,
   },
   main: { width: "100%", maxWidth: 560 },
+  mainWide: { width: "100%", maxWidth: 680 },
   errorBanner: {
     background: "#FBEAEA",
     color: low,
@@ -486,4 +580,71 @@ const styles = {
   bridgeHigh: { background: "#E7F4ED", color: success },
   bridgeMid: { background: "#FBF1E3", color: mid },
   bridgeLow: { background: "#FBEAEA", color: low },
+
+  dashSection: {
+    marginTop: 28,
+    paddingTop: 24,
+    borderTop: `1px solid ${line}`,
+  },
+  dashTitle: {
+    fontFamily: "'Fraunces', serif",
+    fontSize: 16,
+    fontWeight: 600,
+    margin: "0 0 14px",
+  },
+  addMoreRow: {
+    display: "flex",
+    gap: 12,
+    alignItems: "stretch",
+    flexWrap: "wrap",
+  },
+  dropZoneSmall: {
+    flex: "1 1 280px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    border: `1.5px dashed ${line}`,
+    borderRadius: 10,
+    padding: "14px 16px",
+    cursor: "pointer",
+    fontSize: 13,
+    color: "#5B6573",
+  },
+  buttonSecondary: {
+    flex: "0 0 auto",
+    background: "#fff",
+    color: accent,
+    border: `1px solid ${accent}`,
+    borderRadius: 8,
+    padding: "12px 18px",
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  historyList: { display: "flex", flexDirection: "column", gap: 8 },
+  historyRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "10px 12px",
+    border: `1px solid ${line}`,
+    borderRadius: 8,
+  },
+  historyFilename: { flex: 1, fontSize: 13, fontWeight: 500 },
+  historyAmount: {
+    fontFamily: "'IBM Plex Mono', monospace",
+    fontSize: 12,
+    color: "#5B6573",
+  },
+  historyBadge: {
+    fontSize: 11,
+    fontWeight: 600,
+    padding: "3px 8px",
+    borderRadius: 6,
+    whiteSpace: "nowrap",
+  },
+  historyBadgeMatched: { background: "#E7F4ED", color: success },
+  historyBadgePending: { background: "#F1F2F4", color: "#5B6573" },
 };
